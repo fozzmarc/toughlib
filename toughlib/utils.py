@@ -143,6 +143,16 @@ def yuan2fen(yuan=0):
     y = decimal.Decimal(yuan or 0)
     f = y * decimal.Decimal(100)
     return int(f.to_integral_value())
+    
+def hao2yuan(hao=0):
+    h = decimal.Decimal(hao or 0)
+    y = h / decimal.Decimal(10000)
+    return str(y.quantize(decimal.Decimal('1.0000')))
+
+def yuan2hao(yuan=0):
+    y = decimal.Decimal(yuan or 0)
+    h = y * decimal.Decimal(10000)
+    return int(h.to_integral_value())
 
 def get_currtime():
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
