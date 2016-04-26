@@ -15,6 +15,7 @@ def make_sign(api_secret, params=[]):
     _params.sort()
     _params.insert(0, api_secret)
     strs = ''.join(_params)
+    print strs
     mds = md5(strs.encode('utf-8')).hexdigest()
     return mds.upper()
 
@@ -44,6 +45,7 @@ def check_sign(api_secret, msg):
     params = []
     explode_list(msg, params)
     local_sign = make_sign(api_secret, params)
+    print local_sign + "!=" + sign
     return sign == local_sign
 
 def explode_list(msg, blist):
