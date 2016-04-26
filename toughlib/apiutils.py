@@ -40,9 +40,22 @@ def check_sign(api_secret, msg):
     if "sign" not in msg:
         return False
     sign = msg['sign']
-    params = [utils.safestr(msg[k]) for k in msg if k != 'sign']
+    # params = [utils.safestr(msg[k]) for k in msg if k != 'sign']
+    params = []
+    explode_list(msg, params)
     local_sign = make_sign(api_secret, params)
     return sign == local_sign
+
+def explode_list(msg, blist):
+    for n1 in msg:
+        if isinstance(msg[n1], dict):
+            explode_list(msg[n1], blist)
+        elif isinstance(msg[n1], list):
+            for n2 in msg[n1]:
+                explode_list(n2, blist)
+        else:
+            if n1 != 'sign':
+                blist.append(utils.safestr(msg[n1]))
 
 def c_check_sign(msg):
     """
