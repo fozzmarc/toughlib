@@ -157,6 +157,11 @@ class CacheManager(object):
     def raw_set(self, key, value, expire=3600):
         self.set_total += 1
         self.redis.setex(key, expire, value)
+    
+    def hset(self, key, field, value, expire=3600):
+        self.set_total += 1
+        self.redis.hset(key, field, value)
+        self.redis.expire(key, expire)
      
     def event_cache_update(self, key, value, expire=3600):
         self.log.info("event: update cache %s " % key)
