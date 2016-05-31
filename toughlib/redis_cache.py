@@ -141,6 +141,10 @@ class CacheManager(object):
         self.set_total += 1
         raw_data = self.encode_data(value)
         self.redis.setex(key,expire,raw_data)
+        
+    def raw_set(self, key, value, expire=3600):
+        self.set_total += 1
+        self.redis.setex(key, expire, value)
      
     def event_cache_update(self, key, value, expire=3600):
         self.log.info("event: update cache %s " % key)
