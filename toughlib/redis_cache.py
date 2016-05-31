@@ -133,6 +133,20 @@ class CacheManager(object):
         except:
             self.delete(key)
         return None
+    
+    def hget(self, key, field):
+        self.get_total += 1
+        try:
+            raw_data = self.redis.hget(key, field)
+            if raw_data:
+                self.hit_total += 1
+                return raw_data
+            else:
+                self.miss_total += 1
+                self.log.debug('miss key %s' % key)
+        except:
+            self.delete(key)
+        return None
 
     def event_cache_delete(self, key):
         self.log.info("event: delete cache %s " % key)
