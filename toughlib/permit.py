@@ -3,20 +3,40 @@
 import time
 import os
 import importlib
-import logging
-from cyclone.web import RequestHandler
-from cyclone.websocket import WebSocketHandler
-from toughlib import dispatch
+from toughlib import dispatch,logger
+import urlparse
 
 class Permit():
     """ 权限菜单管理
-    @TODO: ⚠注意，这个权限管理在多进程时可能会有数据一致性问题，不过现在展示不解决它
     """
-    routes = {}
-    handlers = {}
 
-    def add_route(self, handle_cls, path, name, category, handle_params={}, is_menu=False, order=time.time(),
-                  is_open=True, oem=False):
+    opr_cache = {}
+
+    def __init__(self, parent=None):
+        
+        if parent:
+            self.routes = parent.routes
+            self.handlers = parent.handlers
+            self.free_routes = parent.free_routes
+        else:
+            self.routes = {}
+            self.handlers = {}
+            self.free_routes = []
+
+    def fork(self,opr_name, opr_type=0,rules=[]):
+        p = Permit.opr_cache.setdefault(opr_name,Permit(self))
+        if opr_type == 0:
+            p.bind_super(opr_name)
+        else:    
+            p.unbind_opr(opr_name)
+            for path in rules:
+                p.bind_opr(opr_name, path)
+        return p
+
+
+    def add_route(self, handle_cls, path, name, category, 
+                  handle_params={}, is_menu=False, 
+                  order=time.time(),is_open=True, oem=False,**kwargs):
         """ 注册权限
         """
         if not path: return
@@ -34,11 +54,11 @@ class Permit():
             is_open=is_open,  # 是否开放授权
             oem=oem #是否定制功能
         )
+        self.routes[path].update(**kwargs)
         self.add_handler(handle_cls, path, handle_params)
 
     def add_handler(self, handle_cls, path, handle_params={}):
-        print ("add handler [%s:%s]" % (path, repr(handle_cls)))
-        self.handlers[path]= (path, handle_cls, handle_params)
+        self.handlers[path] = (path, handle_cls, handle_params)
 
     @property
     def all_handlers(self):
@@ -104,22 +124,38 @@ class Permit():
     def match(self, opr, path):
         """ 检查操作员是否匹配资源
         """
-        if not path or not opr:
+        _url = urlparse.urlparse(path)
+        if not _url.path or not opr:
             return False
-        if path not in self.routes:
+        if _url.path in self.free_routes:
+            return True
+        if _url.path not in self.routes:
             return False
-        return opr in self.routes[path]['oprs']
+        return opr in self.routes[_url.path]['oprs']
 
-    def route(self, url_pattern, menuname=None, category=None, is_menu=False, order=0, is_open=True,oem=False):
+    def suproute(self, url_pattern, menuname=None, category=None, 
+                  is_menu=False, order=0, is_open=True,oem=False,**kwargs):
         selfobj = self
-
         def handler_wapper(cls):
-            assert (issubclass(cls, RequestHandler) or issubclass(cls, WebSocketHandler))
+            selfobj.add_route(cls, url_pattern, menuname, category, 
+                    order=order, is_menu=is_menu, is_open=is_open,oem=oem, admin=True,**kwargs)
+            logger.info("add super managed route [%s : %s]" % (url_pattern, repr(cls)))
+            return cls
+
+        return handler_wapper
+
+    def route(self, url_pattern, menuname=None, category=None, 
+              is_menu=False, order=0, is_open=True,oem=False,**kwargs):
+        selfobj = self
+        def handler_wapper(cls):
             if not menuname:
                 self.add_handler(cls, url_pattern)
+                selfobj.free_routes.append(url_pattern)
+                logger.info("add free route [%s : %s]" % (url_pattern, repr(cls)))
             else:
                 selfobj.add_route(cls, url_pattern, menuname, category, 
-                        order=order, is_menu=is_menu, is_open=is_open,oem=oem)
+                        order=order, is_menu=is_menu, is_open=is_open,oem=oem,**kwargs)
+                logger.info("add managed route [%s : %s]" % (url_pattern, repr(cls)))
             return cls
 
         return handler_wapper
@@ -137,23 +173,24 @@ def load_handlers(handler_path=None, pkg_prefix=None, excludes=[]):
         try:
             sub_module = os.path.join(handler_path, hd)
             if os.path.isdir(sub_module):
-                logging.info('load sub module %s' % hd)
+                # logger.info('load sub module %s' % hd)
                 load_handlers(
                     handler_path=sub_module,
-                    pkg_prefix="{0}.{1}".format(pkg_prefix, hd)
+                    pkg_prefix="{0}.{1}".format(pkg_prefix, hd),
+                    excludes=excludes
                 )
 
             _hd = "{0}.{1}".format(pkg_prefix, hd)
-            logging.info('load_module %s' % _hd)
+            # logger.info('load_module %s' % _hd)
             importlib.import_module(_hd)
         except Exception as err:
-            logging.error("%s, skip module %s.%s" % (str(err),pkg_prefix,hd))
+            logger.error("%s, skip module %s.%s" % (str(err),pkg_prefix,hd))
             import traceback
             traceback.print_exc()
             continue
 
 
-def load_events(event_path=None,pkg_prefix=None,excludes=[],**kwargs):
+def load_events(event_path=None,pkg_prefix=None,excludes=[],event_params={}):
     _excludes = ['__init__','settings'] + excludes
     evs = set(os.path.splitext(it)[0] for it in os.listdir(event_path))
     evs = [it for it in evs if it not in _excludes]
@@ -161,17 +198,22 @@ def load_events(event_path=None,pkg_prefix=None,excludes=[],**kwargs):
         try:
             sub_module = os.path.join(event_path, ev)
             if os.path.isdir(sub_module):
-                logging.info('load sub event %s' % ev)
+                # logger.info('load sub event %s' % ev)
                 load_events(
                     event_path=sub_module,
-                    pkg_prefix="{0}.{1}".format(pkg_prefix, ev)
+                    pkg_prefix="{0}.{1}".format(pkg_prefix, ev),
+                    excludes=excludes,
+                    event_params=event_params,
                 )
             _ev = "{0}.{1}".format(pkg_prefix, ev)
-            logging.info('load_event %s' % _ev)
-            dispatch.register(importlib.import_module(_ev).__call__(**kwargs))
+            # logger.info('load_event %s with params:%s' % (_ev,repr(event_params)))
+            robj = importlib.import_module(_ev)
+            if hasattr(robj, 'evobj'):
+                dispatch.register(robj.evobj)
+            if hasattr(robj, '__call__'):
+                dispatch.register(robj.__call__(**event_params))
         except Exception as err:
-            logging.error("%s, skip module %s.%s" % (str(err),pkg_prefix,ev))
+            logger.error("%s, skip module %s.%s" % (str(err),pkg_prefix,ev))
             import traceback
             traceback.print_exc()
             continue
-
